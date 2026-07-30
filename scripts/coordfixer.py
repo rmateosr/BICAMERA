@@ -30,8 +30,14 @@ filtered_path = os.path.join(directory_path, f'modkit_extract_{chromosome}_filte
 hpmap_path = os.path.join(OUTPUT_FOLDER, 'hpmap', f'{chromosome}.tsv')
 
 # Load the read_id -> HP map. modkit extract only emits primary alignments, so every
-# read_id in the filtered extract is present exactly once in this primary-only map;
-# a read with no HP tag maps to 'noH'. Missing keys default to 'noH' defensively.
+# read_id in the filtered extract MUST be present exactly once in this primary-only
+# map; a read with no HP tag maps to 'noH'.
+#
+# That invariant is load-bearing, so it is verified rather than assumed. A read
+# absent from the map would fall through to 'noH' below — turning a phased read
+# unphased, weakening or erasing the ASM signal, and reporting no error at all. A
+# truncated map (upstream samtools dying mid-pipe) is exactly how that happens, so
+# any unmatched read_id aborts this stage instead of being silently relabelled.
 read_to_hap = {}
 if os.path.exists(hpmap_path):
     with open(hpmap_path) as fh:
@@ -53,6 +59,10 @@ if os.path.exists(hpmap_path):
 min_coord = None
 max_coord = None
 have_input = os.path.exists(filtered_path) and os.path.getsize(filtered_path) > 0
+# Unmatched read_ids, counted on the first pass only (all three passes see the same
+# rows). A few examples are kept for the error message; the count is what matters.
+missing_count = 0
+missing_examples = []
 with open(tmp_file_name, 'w') as out:
     for hap in ('H1', 'H2', 'noH'):
         if not have_input:
@@ -60,7 +70,14 @@ with open(tmp_file_name, 'w') as out:
         with open(filtered_path) as fh:
             for line in fh:
                 f = line.rstrip('\n').split('\t')
-                if read_to_hap.get(f[0], 'noH') != hap:
+                hap_of_read = read_to_hap.get(f[0])
+                if hap_of_read is None:
+                    if hap == 'H1':
+                        missing_count += 1
+                        if len(missing_examples) < 3:
+                            missing_examples.append(f[0])
+                    hap_of_read = 'noH'
+                if hap_of_read != hap:
                     continue
                 pos = int(f[2])
                 # Adjust coordinate for the negative strand (off-by-one fix).
@@ -71,6 +88,21 @@ with open(tmp_file_name, 'w') as out:
                     min_coord = pos
                 if max_coord is None or pos > max_coord:
                     max_coord = pos
+
+if missing_count:
+    os.remove(tmp_file_name)
+    sys.exit(
+        f"ERROR: {chromosome}: {missing_count} extract rows reference read_ids absent "
+        f"from the haplotype map.\n"
+        f"       map     : {hpmap_path} ({len(read_to_hap)} reads)\n"
+        f"       extract : {filtered_path}\n"
+        f"       examples: {', '.join(missing_examples)}\n"
+        f"       modkit extract emits primary alignments only, so every read_id must "
+        f"appear in the map. A shortfall means the map is truncated (see the hpmap "
+        f"stage log). Continuing would relabel those reads noH and quietly weaken the "
+        f"ASM signal, so this stage aborts. Re-run hpmap for {chromosome}."
+    )
+
 os.replace(tmp_file_name, output_file_name)
 
 # Print the min and max coordinates for the final merged file
