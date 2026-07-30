@@ -53,12 +53,11 @@ DEFAULT_RESTARTS = 5
 DEFAULT_WINDOW_STEP = 5
 
 # Default absolute convergence tolerance for the ASM (M1) EM: the loop stops when
-# abs(ll - previous_ll) < tol. Calibrated 2026-06-19 from 1e-8 -> 1e-4
-# (em_convergence_calibration_2026-06-19): 1e-4 is the loosest absolute tol that
-# is a no-op in both validation arms — 0/73,128 BICresult flips on the chr15
-# baseline and bit-identical sensitivity/FPR/F1 on the synthetic truth grid
-# (incl. low depth) — while cutting EM iterations/wall-clock to ~45% of 1e-8.
-# Single fixed absolute value by design.
+# abs(ll - previous_ll) < tol. Loosened from 1e-8 to 1e-4 after calibration showed
+# 1e-4 to be the loosest tolerance that changes no result: 0 of 73,128 BICresult
+# flips on a whole-chromosome HiFi baseline, and bit-identical sensitivity / FPR /
+# F1 across the synthetic truth grid including low depth — while cutting EM
+# iterations and wall-clock to ~45% of 1e-8. Single fixed absolute value by design.
 DEFAULT_EM_TOL = 1e-4
 
 
@@ -256,8 +255,8 @@ def EMBIC_bin_path_ASM(path, windowsize=10, asm_restarts=DEFAULT_RESTARTS, windo
         # (n_in - windowsize) % window_step CpGs that striding leaves in no window
         # are still scored. Without this, at window_step=5 ~78% of >=W-CpG regions
         # orphan 1-4 trailing CpGs, dropping real signal at every region right edge
-        # (chr15 HiFi: 18,634 CpGs / 7,604 windows / 712 ASM calls recovered — see
-        # CHANGES.md 2026-06-30). Added only when the last strided window does not
+        # (on one HiFi chromosome this recovered 18,634 CpGs / 7,604 windows / 712
+        # ASM calls). Added only when the last strided window does not
         # already reach the last in-region CpG. anchor stays in-region (start >=
         # in_filename[0] since n_in >= windowsize) and ends on in_filename[-1]
         # (<= region_end), so no coord_evaluated leaks past the edge.

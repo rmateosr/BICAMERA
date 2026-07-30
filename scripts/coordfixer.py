@@ -48,8 +48,9 @@ if os.path.exists(hpmap_path):
 # Columns (0-indexed) in the modkit extract we keep: read_id (0), ref_position (2),
 # chrom (3), ref_strand (5, used only for the negative-strand off-by-one fix),
 # call_code (11). call_code carries the methylation decision (m | -); we drop
-# call_prob (10) because it is the confidence of the winning class, not
-# P(methylated) (see CHANGES.md 2026-05-25 modkit filter fix).
+# call_prob (10) because it is the confidence of the WINNING class, not
+# P(methylated) — thresholding on it would treat a confident unmethylated call as
+# a confident methylated one.
 #
 # Output structure (no header, tab-separated): read_id, ref_position, chrom, call_code, Haplotag
 # Emitted in H1 -> H2 -> noH order (one streaming pass per haplotype over the single

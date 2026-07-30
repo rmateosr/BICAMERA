@@ -1,0 +1,5 @@
+# Runtime dependencies of the EM/BIC engine (em/).
+numpy>=1.24
+pandas>=2.0
+
+# For the test suite: pip install pytest
