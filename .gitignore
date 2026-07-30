@@ -5,3 +5,4 @@ log/
 *.tmp
 core.*
 bin/modkit
+RUN_LOG.md

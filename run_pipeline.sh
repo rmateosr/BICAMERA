@@ -231,7 +231,10 @@ bicamera_scheduler_epilogue
 # pipeline code differs from HEAD). Best-effort: a logging hiccup must never
 # fail an already-submitted run, so the whole block falls through to a WARN.
 # ------------------------------------------------------------
-RUN_LOG="${SCRIPT_DIR}/RUN_LOG.md"
+# Written beside the run's own outputs, not into the repo — a clone must stay
+# clean, and each run's provenance belongs with the data it produced. Override
+# with RUN_LOG=/path/to/registry.md to keep one shared registry across runs.
+RUN_LOG="${RUN_LOG:-${OUT_DIR}/RUN_LOG.md}"
 {
     RUN_TS="$(date '+%Y-%m-%d %H:%M:%S %Z')"
     # CHROMS default is built with `seq` (one per line); collapse to a single line.
