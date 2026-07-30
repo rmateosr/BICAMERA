@@ -44,6 +44,49 @@ BEDTOOLS="${BEDTOOLS:-$(command -v bedtools || true)}"
 PYTHON="${PYTHON:-$(command -v python3 || true)}"
 export MODKIT_BIN SAMTOOLS BEDTOOLS PYTHON
 
+# Minimum modkit version. 0.4.1 moved read-level extraction under the `extract
+# calls` subcommand, and the pipeline reads that subcommand's TSV by fixed column
+# position — $3 ref_position and $12 call_code in the filter and coordfix stages,
+# $10/$11 of the pileup bedMethyl in region selection. An older modkit has no
+# `calls` subcommand at all; a layout change would shift those columns and yield
+# silently wrong methylation calls rather than an error, which is why the version
+# is enforced here instead of merely noted in a comment.
+BICAMERA_MODKIT_MIN="0.4.1"
+export BICAMERA_MODKIT_MIN
+
+# Verify $MODKIT_BIN is at least $BICAMERA_MODKIT_MIN. Returns non-zero on a
+# too-old version. `modkit --version` prints e.g. "mod_kit 0.4.1"; an unparseable
+# version warns rather than blocks, so an unexpected build string cannot make the
+# pipeline unrunnable.
+bicamera_check_modkit_version() {
+    _mk_ver=$("${MODKIT_BIN}" --version 2>/dev/null | awk 'NR==1{print $NF}')
+    # Only compare something that actually looks like a dotted version. Without
+    # this guard a build string such as "some weird build" reaches sort -V, whose
+    # ordering against a numeric version is arbitrary — it could just as easily
+    # report "modkit build is too old" as accept it.
+    case "${_mk_ver}" in
+        *[!0-9.]*|''|.*|*.)
+            echo "WARN: could not read a version from '${MODKIT_BIN} --version'" >&2
+            echo "      (got '${_mk_ver:-<empty>}'); skipping the modkit >= ${BICAMERA_MODKIT_MIN} check." >&2
+            echo "      Column positions are assumed to match the 0.4.x layout." >&2
+            unset _mk_ver
+            return 0 ;;
+    esac
+    # sort -V puts the lower version first; if that is still the minimum, we are at
+    # or above it (equal versions also leave the minimum first).
+    if [ "$(printf '%s\n%s\n' "${BICAMERA_MODKIT_MIN}" "${_mk_ver}" | sort -V | head -1)" != "${BICAMERA_MODKIT_MIN}" ]; then
+        echo "ERROR: modkit ${_mk_ver} is too old (need >= ${BICAMERA_MODKIT_MIN})." >&2
+        echo "       binary: ${MODKIT_BIN}" >&2
+        echo "       Read-level extraction moved under 'extract calls' in ${BICAMERA_MODKIT_MIN}; older" >&2
+        echo "       builds lack the subcommand. Get a release binary from" >&2
+        echo "       https://github.com/nanoporetech/modkit/releases" >&2
+        unset _mk_ver
+        return 1
+    fi
+    unset _mk_ver
+    return 0
+}
+
 # bicamera_require <tool> [<tool> ...]
 # Abort with an actionable message if a needed tool is unresolved. Each stage
 # declares only the tools it actually runs, so a missing bedtools cannot fail a
@@ -55,9 +98,11 @@ bicamera_require() {
             modkit)
                 if [ ! -x "${MODKIT_BIN}" ]; then
                     echo "ERROR: modkit not found (searched PATH, then ${MODKIT_BIN})." >&2
-                    echo "       BICAMERA requires modkit >= 0.4.1; get a release binary from" >&2
+                    echo "       BICAMERA requires modkit >= ${BICAMERA_MODKIT_MIN}; get a release binary from" >&2
                     echo "       https://github.com/nanoporetech/modkit/releases" >&2
                     echo "       then re-run with MODKIT_BIN=/path/to/modkit" >&2
+                    _req_missing=1
+                elif ! bicamera_check_modkit_version; then
                     _req_missing=1
                 fi ;;
             samtools)
