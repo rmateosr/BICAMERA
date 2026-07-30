@@ -3,8 +3,6 @@
 # ABOUTME: Thin SGE wrapper around scripts/coordfixer.py.
 #$ -S /bin/bash
 #$ -cwd
-#$ -o log
-#$ -e log
 #$ -l s_vmem=2G
 set -xv
 set -o errexit

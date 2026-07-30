@@ -3,8 +3,6 @@
 # ABOUTME: Invokes em/BIC_algorithm_ASM.py with 10 workers; no time dimension, no multi-sample pairing.
 #$ -S /bin/bash
 #$ -cwd
-#$ -o log
-#$ -e log
 #$ -l s_vmem=2G
 #$ -pe def_slot 10
 set -xv

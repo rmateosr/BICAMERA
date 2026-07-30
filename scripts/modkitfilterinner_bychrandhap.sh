@@ -3,8 +3,6 @@
 # ABOUTME: Pure awk on the TSV; writes atomically then deletes the raw extract.
 #$ -S /bin/bash
 #$ -cwd
-#$ -o log
-#$ -e log
 #$ -l s_vmem=2G
 set -xv
 set -o errexit

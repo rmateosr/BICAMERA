@@ -3,8 +3,6 @@
 # ABOUTME: Single awk pass; replaces the previous Rscript line-by-line implementation.
 #$ -S /bin/bash
 #$ -cwd
-#$ -o log
-#$ -e log
 #$ -l s_vmem=2G
 #$ -pe def_slot 1
 set -xv

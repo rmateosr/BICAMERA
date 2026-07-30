@@ -65,6 +65,27 @@ export CHROMS="${CHROMS:-$(seq -f "chr%g" 1 22) chrX chrY}"
 . "${BICAMERA_ROOT}/config/site.sh"
 . "${BICAMERA_ROOT}/config/defaults.sh"
 
+# Scheduler backend. Defaults to sge where qsub exists and local otherwise, so the
+# pipeline runs on a workstation with no configuration. Force one with
+# BICAMERA_SCHEDULER=sge|local; add a backend by dropping a scheduler/<name>.sh
+# that defines bicamera_submit_array and bicamera_scheduler_epilogue.
+if [ -z "${BICAMERA_SCHEDULER+set}" ]; then
+    if command -v qsub >/dev/null 2>&1; then
+        BICAMERA_SCHEDULER=sge
+    else
+        BICAMERA_SCHEDULER=local
+    fi
+fi
+export BICAMERA_SCHEDULER
+_bicamera_backend="${BICAMERA_ROOT}/scheduler/${BICAMERA_SCHEDULER}.sh"
+if [ ! -f "${_bicamera_backend}" ]; then
+    echo "ERROR: unknown BICAMERA_SCHEDULER='${BICAMERA_SCHEDULER}' (no ${_bicamera_backend})" >&2
+    echo "       available: $(cd "${BICAMERA_ROOT}/scheduler" && ls *.sh | sed 's/\.sh$//' | tr '\n' ' ')" >&2
+    exit 1
+fi
+. "${_bicamera_backend}"
+unset _bicamera_backend
+
 export ASM_DRIVER="${BICAMERA_ROOT}/em/BIC_algorithm_ASM.py"
 export ASM_OUT="${OUT_DIR}/ASM"
 RUN_LABEL="${RUN_LABEL:-bam}"
@@ -116,7 +137,8 @@ fi
 # ------------------------------------------------------------
 # Set up sample working dir with phased BAM symlinks
 # ------------------------------------------------------------
-mkdir -p "${OUT_DIR}" "${OUT_DIR}/log" "${ASM_OUT}" "${SCRIPT_DIR}/log"
+# Logs go under OUT_DIR, not into the repo — the backend passes -o/-e there.
+mkdir -p "${OUT_DIR}" "${OUT_DIR}/log" "${ASM_OUT}"
 ln -sfn "$(readlink -f "${PHASED_BAM}")" "${OUT_DIR}/phased_output.bam"
 if [ -f "${PHASED_BAM}.bai" ]; then
     ln -sfn "$(readlink -f "${PHASED_BAM}.bai")" "${OUT_DIR}/phased_output.bam.bai"
@@ -127,61 +149,61 @@ else
 fi
 
 # ------------------------------------------------------------
-# Submit the whole DAG as SGE array jobs up front — one task per chromosome per
-# stage — chained by captured job ID. Two legs run in parallel and join at modkitref:
+# Run the whole DAG — one task per chromosome per stage. Two legs are independent
+# and join at modkitref:
 #   discovery : pileup -> regions      (potential-ASM region BEDs)
 #   read      : hpmap                  (read_id->HP map straight from the original BAM)
-# Both hpmap and modkitref read the indexed original phased_output.bam with --region
-# <chr> (the per-chr split BAM stage was deleted — see CHANGES.md 2026-06-30), so
-# hpmap is now a leaf that can start immediately on the launch-time BAM symlink.
-# modkitref holds on BOTH hpmap and regions (read-level extraction is restricted to
-# the candidate regions); then: modkitref -> filter -> coordfix -> m2r -> bucket -> ASM EM.
+# Both hpmap and modkitref read the indexed original phased_output.bam with
+# --region <chr> (there is no per-chr split BAM stage), so hpmap is a leaf that can
+# start immediately on the launch-time BAM symlink. modkitref waits on BOTH hpmap
+# and regions (read-level extraction is restricted to the candidate regions); then
+# modkitref -> filter -> coordfix -> m2r -> bucket -> ASM EM.
 #
-# Every inner derives its chromosome from SGE_TASK_ID indexing ${CHROMS}, so every
-# submit MUST pass -V (CHROMS is exported above) and the array is sized -t 1-N from
-# the SAME list. Job IDs are captured with -terse (array form prints
-# <jobid>.<start>-<end>:<step>; cut keeps the bare id); each stage holds on the
-# previous stage's id. ID holds are run-scoped (immune to RUN_LABEL name collisions)
-# and, unlike a name hold, do not release on a crashed predecessor task.
-# Per-inner resources (s_vmem, def_slot) stay in each inner's #$ directives.
+# Stage submission goes through bicamera_submit_array, provided by the selected
+# scheduler backend. The SGE backend queues every stage up front and chains them by
+# job id, so this launcher returns immediately; the local backend runs each stage to
+# completion in call order, which satisfies the same dependencies serially. The
+# dependency and resource arguments are therefore advisory to the backend — see
+# scheduler/local.sh for what it ignores and why.
+#
+# Every inner derives its chromosome from SGE_TASK_ID indexing ${CHROMS}, so each
+# array is sized from the SAME list the inners will index.
 # ------------------------------------------------------------
 chromosomes=(${CHROMS})
 N=${#chromosomes[@]}
-bare_id() { cut -d. -f1; }   # bare job id from a -terse array submit
 
-pushd "${SCRIPT_DIR}" >/dev/null
+pushd "${BICAMERA_ROOT}" >/dev/null
 
 # discovery leg: pileup -> regions
-pileup_jid=$(qsub -terse -V -N "${RUN_LABEL}_pileup" -t 1-${N} \
-    scripts/asm_pileup_inner.sh "${OUT_DIR}" "${REF}" | bare_id)
-regions_jid=$(qsub -terse -V -N "${RUN_LABEL}_regions" -t 1-${N} -hold_jid "${pileup_jid}" \
-    scripts/asm_regions_inner.sh "${OUT_DIR}" | bare_id)
+pileup_jid=$(bicamera_submit_array pileup "${N}" "" "" \
+    scripts/asm_pileup_inner.sh "${OUT_DIR}" "${REF}")
+regions_jid=$(bicamera_submit_array regions "${N}" "${pileup_jid}" "" \
+    scripts/asm_regions_inner.sh "${OUT_DIR}")
 
 # read leg: hpmap (reads the indexed original BAM directly with a region arg; no split).
-# Leaf job — only needs the launch-time phased_output.bam(.bai) symlink, so no hold.
-hpmap_jid=$(qsub -terse -V -N "${RUN_LABEL}_hpmap" -t 1-${N} \
-    scripts/hpmap_inner.sh "${OUT_DIR}" | bare_id)
+# Leaf stage — only needs the launch-time phased_output.bam(.bai) symlink.
+hpmap_jid=$(bicamera_submit_array hpmap "${N}" "" "" \
+    scripts/hpmap_inner.sh "${OUT_DIR}")
 
 # join + shared chain: modkitref -> filter -> coordfix -> m2r -> bucket -> ASM EM
-modkitref_jid=$(qsub -terse -V -N "${RUN_LABEL}_modkitref" -t 1-${N} \
-    -hold_jid "${hpmap_jid},${regions_jid}" \
-    scripts/modkitinner_withreference_bychrandhap.sh "${OUT_DIR}" "${REF}" | bare_id)
-filter_jid=$(qsub -terse -V -N "${RUN_LABEL}_filter" -t 1-${N} -hold_jid "${modkitref_jid}" \
-    scripts/modkitfilterinner_bychrandhap.sh "${OUT_DIR}" | bare_id)
-fixer_jid=$(qsub -terse -V -N "${RUN_LABEL}_fixer" -t 1-${N} -hold_jid "${filter_jid}" \
-    scripts/coordfixer_inner.sh "${OUT_DIR}" | bare_id)
-m2r_jid=$(qsub -terse -V -N "${RUN_LABEL}_m2r" -t 1-${N} -hold_jid "${fixer_jid}" \
-    scripts/merged2reads_inner.sh "${OUT_DIR}" | bare_id)
-bucket_jid=$(qsub -terse -V -N "${RUN_LABEL}_bucket" -t 1-${N} -hold_jid "${m2r_jid}" \
-    scripts/asmregion_bucket_inner.sh "${OUT_DIR}" | bare_id)
-asm_jid=$(qsub -terse -V -N "${RUN_LABEL}_asm" -t 1-${N} -hold_jid "${bucket_jid}" \
-    -l s_vmem=${ASM_EM_VMEM},mem_req=${ASM_EM_VMEM} \
-    scripts/run_ASM_inner.sh "${ASM_OUT}" "${OUT_DIR}" | bare_id)
+modkitref_jid=$(bicamera_submit_array modkitref "${N}" "${hpmap_jid},${regions_jid}" "" \
+    scripts/modkitinner_withreference_bychrandhap.sh "${OUT_DIR}" "${REF}")
+filter_jid=$(bicamera_submit_array filter "${N}" "${modkitref_jid}" "" \
+    scripts/modkitfilterinner_bychrandhap.sh "${OUT_DIR}")
+fixer_jid=$(bicamera_submit_array fixer "${N}" "${filter_jid}" "" \
+    scripts/coordfixer_inner.sh "${OUT_DIR}")
+m2r_jid=$(bicamera_submit_array m2r "${N}" "${fixer_jid}" "" \
+    scripts/merged2reads_inner.sh "${OUT_DIR}")
+bucket_jid=$(bicamera_submit_array bucket "${N}" "${m2r_jid}" "" \
+    scripts/asmregion_bucket_inner.sh "${OUT_DIR}")
+asm_jid=$(bicamera_submit_array asm "${N}" "${bucket_jid}" \
+    "s_vmem=${ASM_EM_VMEM},mem_req=${ASM_EM_VMEM}" \
+    scripts/run_ASM_inner.sh "${ASM_OUT}" "${OUT_DIR}")
 
 popd >/dev/null
 
 cat <<EOF
-Submitted ASM pipeline (from BAM, potential-ASM-region route).
+BICAMERA — static ASM detection from a phased modBAM.
   BAM:            ${PHASED_BAM}
   reference:      ${REF}
   modkit:         ${MODKIT_BIN}
@@ -197,9 +219,10 @@ Submitted ASM pipeline (from BAM, potential-ASM-region route).
   em tol:         ${EM_TOL:-driver default}
   region select:  cov>=${MIN_COV}, ${FRAC_LOW}<=frac<=${FRAC_HIGH}, merge -d ${MERGE_DIST}
   run label:      ${RUN_LABEL}
-
-Monitor:  qstat -u \$USER | grep ${RUN_LABEL}
+  site profile:   ${BICAMERA_SITE}
+  scheduler:      ${BICAMERA_SCHEDULER}
 EOF
+bicamera_scheduler_epilogue
 
 # ------------------------------------------------------------
 # Append a run-registry entry so we can track which runs have been done,

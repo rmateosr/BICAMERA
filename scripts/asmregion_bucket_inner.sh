@@ -3,8 +3,6 @@
 # ABOUTME: Replaces the divide step; boundaries come from potential_asm_regions/<chr>.bed.
 #$ -S /bin/bash
 #$ -cwd
-#$ -o log
-#$ -e log
 #$ -l s_vmem=4G
 #$ -pe def_slot 1
 set -xv

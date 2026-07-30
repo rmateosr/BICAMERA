@@ -3,8 +3,6 @@
 # ABOUTME: Replaces the 3-way BAM split; the map is joined onto the single modkit extract at coordfix.
 #$ -S /bin/bash
 #$ -cwd
-#$ -o log
-#$ -e log
 #$ -l s_vmem=2G
 set -xv
 set -o errexit

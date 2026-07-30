@@ -3,8 +3,6 @@
 # ABOUTME: Population-average methylation; feeds the potential-ASM-region selector.
 #$ -S /bin/bash
 #$ -cwd
-#$ -o log
-#$ -e log
 #$ -l s_vmem=8G
 #$ -pe def_slot 4
 set -xv

@@ -3,8 +3,6 @@
 # ABOUTME: bedMethyl -> (cov>=MIN_COV & FRAC_LOW<=frac<=FRAC_HIGH) -> bedtools merge -d MERGE_DIST.
 #$ -S /bin/bash
 #$ -cwd
-#$ -o log
-#$ -e log
 #$ -l s_vmem=2G
 set -xv
 set -o errexit

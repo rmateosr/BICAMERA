@@ -3,8 +3,6 @@
 # ABOUTME: One pass over the indexed BAM (--region <chr> + --include-bed) -> per-read CpG calls.
 #$ -S /bin/bash
 #$ -cwd
-#$ -o log
-#$ -e log
 #$ -l s_vmem=12G
 set -xv
 set -o errexit
