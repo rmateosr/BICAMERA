@@ -23,8 +23,8 @@ chromosomes=(${CHROMS})
 chr=${chromosomes[$((SGE_TASK_ID-1))]}
 
 # Same modkit-binary resolution rationale as modkitinner_withreference_bychrandhap.sh:
-# under SGE $0 is the spool path, so resolve via $SGE_O_WORKDIR (submitter cwd = UPSTREAM_DIR).
-MODKIT_BIN=${MODKIT_BIN:-${SGE_O_WORKDIR:-$(pwd)}/bin/modkit}
+# under SGE $0 is the spool path, so resolve via $BICAMERA_ROOT / $SGE_O_WORKDIR.
+MODKIT_BIN=${MODKIT_BIN:-${BICAMERA_ROOT:-${SGE_O_WORKDIR:-$(pwd)}}/bin/modkit}
 
 mkdir -p "${OUTPUT_FOLDER}/pileup"
 OUT="${OUTPUT_FOLDER}/pileup/${chr}.bedmethyl"

@@ -21,8 +21,8 @@ set -euo pipefail
 #   ASM_RESTARTS        — EM restarts for the ASM BIC; unset = driver default 5
 #   EM_TOL              — ASM (M1) EM convergence tol; unset = driver default 1e-4
 #
-# NOTE: this pipeline requires modBAM input (Dorado-style MM/ML tags). For
-# Guppy/nanopolish-era data, use ../from_tsv/ instead. The startup guard below
+# NOTE: this pipeline requires modBAM input (Dorado-style MM/ML tags).
+# Guppy/nanopolish-era basecalls are not supported. The startup guard below
 # aborts if MM/ML are absent.
 # ============================================================
 
@@ -37,10 +37,10 @@ PHASED_BAM=$1
 REF=$2
 OUT_DIR=$3
 
-# Resolve to absolute paths. The SGE inner jobs run with cwd = UPSTREAM_DIR
-# (from_bam), so a RELATIVE OUT_DIR/REF passed here would resolve against
-# from_bam inside every job (e.g. from_bam/from_bam/...) and silently break with
-# "file not found". realpath -m does not require the path to exist yet.
+# Resolve to absolute paths. The inner jobs run with cwd = the repo root, so a
+# RELATIVE OUT_DIR/REF passed here would resolve against the repo inside every
+# job and silently break with "file not found". realpath -m does not require the
+# path to exist yet.
 REF="$(realpath -m "${REF}")"
 OUT_DIR="$(realpath -m "${OUT_DIR}")"
 
@@ -71,9 +71,12 @@ export MIN_REGION_CPGS="${MIN_REGION_CPGS:-3}"
 RUN_LABEL="${RUN_LABEL:-bam}"
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-FORK_ROOT="$( cd "${SCRIPT_DIR}/.." && pwd )"
-export UPSTREAM_DIR="${SCRIPT_DIR}"
-export ASM_DRIVER="${FORK_ROOT}/em/BIC_algorithm_ASM.py"
+# Repo root, exported so the inner jobs can locate scripts/ and em/. The inners
+# cannot derive it themselves: under SGE, $0 / BASH_SOURCE[0] resolve to
+# /var/spool/ge/.../job_scripts/<JID>. They previously used SGE_O_WORKDIR, which
+# only exists under SGE and so breaks the local scheduler backend.
+export BICAMERA_ROOT="${SCRIPT_DIR}"
+export ASM_DRIVER="${BICAMERA_ROOT}/em/BIC_algorithm_ASM.py"
 export ASM_OUT="${OUT_DIR}/ASM"
 
 # modkit binary — exported so SGE inner scripts resolve correctly
@@ -118,8 +121,8 @@ if [ "${SKIP_MODBAM_CHECK:-0}" != "1" ]; then
             cat <<ERR >&2
 ERROR: Input BAM has no MM/ML methylation tags in the first 5000 reads.
        file : ${PHASED_BAM}
-       from_bam REQUIRES modBAM input (Dorado MM/ML tags).
-       For Guppy / nanopolish-era data, use ../from_tsv/ instead.
+       BICAMERA requires modBAM input carrying Dorado-style MM/ML tags.
+       Guppy / nanopolish-era basecalls are not supported.
        To bypass this check, set SKIP_MODBAM_CHECK=1.
 ERR
             exit 3
@@ -234,11 +237,11 @@ RUN_LOG="${SCRIPT_DIR}/RUN_LOG.md"
     CHROMS_FMT="$(echo ${CHROMS})"
     if GIT_SHA="$(git -C "${SCRIPT_DIR}" rev-parse --short HEAD 2>/dev/null)"; then
         GIT_BRANCH="$(git -C "${SCRIPT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null)"
-        # "dirty" only w.r.t. TRACKED pipeline code (from_bam scripts + em). Use
-        # -uno so the run-output dirs that land under from_bam/ (all untracked) and
-        # the run log itself don't trip the flag — it means "committed pipeline code
-        # differs from HEAD", which is what "are these runs at the same level" needs.
-        if [ -n "$(git -C "${SCRIPT_DIR}" status --porcelain -uno -- "${SCRIPT_DIR}" "${FORK_ROOT}/em" 2>/dev/null | grep -v 'RUN_LOG.md')" ]; then
+        # "dirty" only w.r.t. TRACKED pipeline code. Use -uno so untracked files
+        # and the run log itself don't trip the flag — it means "committed pipeline
+        # code differs from HEAD", which is what "are these runs at the same level"
+        # needs. SCRIPT_DIR is the repo root, so this covers em/ as well.
+        if [ -n "$(git -C "${SCRIPT_DIR}" status --porcelain -uno 2>/dev/null | grep -v 'RUN_LOG.md')" ]; then
             GIT_STATE="${GIT_SHA} (${GIT_BRANCH}, pipeline code DIRTY vs HEAD)"
         else
             GIT_STATE="${GIT_SHA} (${GIT_BRANCH}, clean)"
@@ -248,14 +251,13 @@ RUN_LOG="${SCRIPT_DIR}/RUN_LOG.md"
     fi
     if [ ! -f "${RUN_LOG}" ]; then
         cat > "${RUN_LOG}" <<'HDR'
-# RUN_LOG — ASM `from_bam` pipeline runs
+# RUN_LOG — BICAMERA pipeline runs
 
 Auto-appended by `run_pipeline.sh` on every submission (newest at the bottom).
 Each entry records the sample BAM, reference, output dir, tunables, the exact
 reproducible command, and the git commit — so runs can be confirmed to share a
-code "level". A `DIRTY vs HEAD` git state means the pipeline code (from_bam + em)
-had uncommitted changes at run time, so that run is NOT pinned to the commit.
-See `../../SAMPLES.md` for per-BAM provenance.
+code "level". A `DIRTY vs HEAD` git state means the pipeline code had uncommitted
+changes at run time, so that run is NOT pinned to the commit.
 
 ---
 HDR

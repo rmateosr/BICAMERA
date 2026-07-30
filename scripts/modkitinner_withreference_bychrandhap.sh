@@ -19,15 +19,11 @@ chromosomes=(${CHROMS})
 chr=${chromosomes[$((SGE_TASK_ID-1))]}
 # Output dir was created by the (now-removed) outer; create it here so the task is self-contained.
 mkdir -p "${OUTPUT_FOLDER}/modkit_splitbam_referenced_bychrandhap"
-# Default to the modkit binary bundled in this repo (<UPSTREAM_DIR>/bin/modkit).
-# Under SGE, $0 is the spooled job-script path (/var/spool/ge/.../job_scripts/<JID>),
-# so $(readlink -f "$0") does NOT point back into the repo — it resolves to the spool
-# dir and derives a path like /var/spool/ge/.../bin/modkit that doesn't exist.
-# Use $SGE_O_WORKDIR instead: SGE auto-sets it to the submitter's cwd for every job
-# (no -V required). The submitter (modkitouter) runs with -cwd from UPSTREAM_DIR, so
-# $SGE_O_WORKDIR = UPSTREAM_DIR here. Fall back to $(pwd) for non-SGE invocations.
-# Override with MODKIT_BIN env var if needed.
-MODKIT_BIN=${MODKIT_BIN:-${SGE_O_WORKDIR:-$(pwd)}/bin/modkit}
+# Locate modkit. Under SGE, $0 is the spooled job-script path
+# (/var/spool/ge/.../job_scripts/<JID>), so $(readlink -f "$0") does NOT point back
+# into the repo. Prefer $BICAMERA_ROOT (exported by run_pipeline.sh, works under any
+# scheduler backend), then $SGE_O_WORKDIR, then $(pwd).
+MODKIT_BIN=${MODKIT_BIN:-${BICAMERA_ROOT:-${SGE_O_WORKDIR:-$(pwd)}}/bin/modkit}
 # modkit v0.4.1 moved read-level extraction under the `calls` subcommand.
 # Top-level `modkit extract` no longer accepts flags directly — it requires a
 # subcommand (full | calls). `calls` preserves the --cpg / --mapped-only /

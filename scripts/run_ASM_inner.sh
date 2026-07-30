@@ -64,7 +64,7 @@ if [ "${#region_files[@]}" -eq 0 ]; then
 fi
 
 # ASM_DRIVER is exported by the runner; falls back to the in-repo path for direct invocations.
-ASM_DRIVER="${ASM_DRIVER:-${SGE_O_WORKDIR:-$(pwd)}/../em/BIC_algorithm_ASM.py}"
+ASM_DRIVER="${ASM_DRIVER:-${BICAMERA_ROOT:-${SGE_O_WORKDIR:-$(pwd)}}/em/BIC_algorithm_ASM.py}"
 
 python3 "${ASM_DRIVER}" \
     "${REGION_DIR}" \
