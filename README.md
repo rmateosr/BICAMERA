@@ -78,6 +78,9 @@ modkit_referenced_splitbam_mergedbychr/
 
 Keep `ASM/`, `hpmap/`, `potential_asm_regions/` and `log/`.
 
+For scale: chr22 of a 48× HiFi genome takes about 8 minutes and peaks near 4 GB
+with `WORKERS=4`, on one machine with no scheduler.
+
 ## Output
 
 | Column | |
