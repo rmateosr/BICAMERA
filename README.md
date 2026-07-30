@@ -89,15 +89,22 @@ with `WORKERS=4`, on one machine with no scheduler.
 | `window_last_coord` | last CpG in the window |
 | `BICsinglecomp` | BIC of the shared model |
 | `BICmiddlecomp` | BIC of the per-allele (ASM) model |
-| `BICresult` | **1 = ASM wins**, 0 = shared |
-| `BIC_winner` | the same call as an argmin: 0 shared, 1 ASM |
+| `BICresult` | **1 = ASM wins**, 0 = shared. Equivalently `deltaBIC > 0` |
+| `BIC_winner` | same value as `BICresult`; kept for backward compatibility. Prefer `BICresult` |
 | `windows_size` | CpGs in the window |
 | `total_reads` | reads covering it |
 | `em_iterations` | iterations the ASM fit needed |
 | `mean_theta_diff` | distance between the two alleles' methylation — effect size |
 | `window_cpgs` | the window's CpG coordinates, comma-separated |
+| `deltaBIC` | `BICsinglecomp − BICmiddlecomp`, i.e. BIC<sub>Shared</sub> − BIC<sub>ASM</sub>. **Positive favours ASM**, larger is stronger |
 
-Lower BIC wins, so `BICresult = 1` means `BICmiddlecomp < BICsinglecomp`.
+Lower BIC wins, so `BICresult = 1` means `BICmiddlecomp < BICsinglecomp` — equivalently
+`deltaBIC > 0`. `deltaBIC` uses the same sign convention as the paper, so you can read
+it directly without deriving or negating anything.
+
+`deltaBIC` sits last rather than beside the two BIC columns because some downstream
+tooling addresses this file by column number. New columns are appended for the same
+reason — read by name, and the order stays stable.
 
 `em/asm_bic_to_bed.py` turns these TSVs into a BED for a genome browser.
 

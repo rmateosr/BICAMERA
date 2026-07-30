@@ -75,12 +75,18 @@ def parse_asm_tsv(path, chrom):
             i_m1 = header.index("BICmiddlecomp")
         except ValueError as e:
             sys.exit(f"ERROR: {path} missing expected column: {e}")
+        # The driver emits deltaBIC directly. Fall back to deriving it for TSVs
+        # written before that column existed, so older runs still convert.
+        i_delta = header.index("deltaBIC") if "deltaBIC" in header else None
         for line in f:
             fields = line.rstrip("\n").split("\t")
             start = int(fields[i_first])
             end = int(fields[i_last]) + 1  # half-open, include last CpG base
-            # BICsinglecomp - BICmiddlecomp = BIC_Shared - BIC_ASM; > 0 = ASM.
-            delta_bic = float(fields[i_m0]) - float(fields[i_m1])
+            if i_delta is not None:
+                delta_bic = float(fields[i_delta])
+            else:
+                # BICsinglecomp - BICmiddlecomp = BIC_Shared - BIC_ASM; > 0 = ASM.
+                delta_bic = float(fields[i_m0]) - float(fields[i_m1])
             is_asm = fields[i_res] == "1"
             intervals.append((chrom, start, end, delta_bic, is_asm))
     return intervals

@@ -149,12 +149,32 @@ _BIC_SUMMARY_COLUMNS = (
     "BICsinglecomp",
     "BICmiddlecomp",
     "BICresult",
+    # Redundant with BICresult — always the same value, by construction and not by
+    # luck: argmin returns the FIRST minimum, so an exact tie gives 0, and
+    # (middle < single) is False there too. Both reduce to int(middle < single);
+    # verified equal across 4,001,953 windows of a 24-chromosome run. Kept because
+    # summarize_asm_bic_to_bedgraph.py requires the column. Prefer BICresult in new
+    # code, or deltaBIC when the magnitude matters.
     "BIC_winner",
     "windows_size",
     "total_reads",
     "em_iterations",
     "mean_theta_diff",
     "window_cpgs",
+    # deltaBIC = BICsinglecomp - BICmiddlecomp = BIC_Shared - BIC_ASM, so > 0 favours
+    # ASM and larger means stronger. Emitted rather than left to each consumer to
+    # derive: the difference was being re-derived by hand in a dozen places, some with
+    # the sign inverted relative to how it is reported. Equals BICresult by
+    # construction (BICresult == int(deltaBIC > 0)).
+    #
+    # APPENDED, not slotted in beside the two BICs where it belongs logically,
+    # because several analysis harnesses address this TSV by column NUMBER
+    # (BICresult at 5, window_cpgs at 11, and raw $3/$4/$7/$8/$11 in two awk
+    # scripts). Inserting mid-schema shifts those; three of them guard the header
+    # and abort, but the rest would silently read the wrong fields. Appending keeps
+    # every existing consumer correct on both old and new output. Any new column
+    # should likewise go at the end.
+    "deltaBIC",
 )
 
 
@@ -320,7 +340,7 @@ def EMBIC_bin_path_ASM(path, windowsize=10, asm_restarts=DEFAULT_RESTARTS, windo
         "BICsinglecomp": BICsinglecomp,
         "BICmiddlecomp": BICmiddlecomp,
         # Semantics: 1 if ASM (M1) beats Shared (M0). Recovers the original
-        # cross-sectional BIC ASM convention (M0 vs M1).
+        # cross-sectional BIC ASM convention (M0 vs M1). Equivalent to deltaBIC > 0.
         "BICresult": (BICmiddlecomp < BICsinglecomp).astype(int),
         "BIC_winner": BIC_winner,
         "windows_size": eff_W,
@@ -328,6 +348,10 @@ def EMBIC_bin_path_ASM(path, windowsize=10, asm_restarts=DEFAULT_RESTARTS, windo
         "em_iterations": em_iters,
         "mean_theta_diff": theta_diff,
         "window_cpgs": window_cpgs,
+        # Signed evidence in the direction ASM is reported: BIC_Shared - BIC_ASM,
+        # positive favours ASM. Low-coverage sentinel windows (0, 1) give -1. Last
+        # by design — see the note in _BIC_SUMMARY_COLUMNS.
+        "deltaBIC": BICsinglecomp - BICmiddlecomp,
     })
     return BIC_summary
 

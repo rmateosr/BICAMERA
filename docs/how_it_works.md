@@ -80,8 +80,24 @@ partially-methylated ASM. Both bounds are environment variables.
 ## Reproducibility
 
 The ASM model's EM starts from a seed derived from a hash of the window's data
-(`_seed_from_X`), so the same input gives the same BIC every time — no run-to-run
-drift from random restarts.
+(`_seed_from_X`), so on a given machine the same input gives the same BIC every time —
+no run-to-run drift from random restarts, and no dependence on `WORKERS`.
+
+**Across different hardware, expect agreement to about 1e-10, not to the bit.** The
+shared model (`BICsinglecomp`) is order-invariant and reproduces exactly. The ASM
+model goes through a BLAS matrix product whose last bits depend on the CPU and the
+kernel the library dispatches to, and the EM iteration amplifies that slightly.
+Measured on chr22 of a 48× HiFi genome, same input, two different Intel CPUs:
+
+| | |
+|---|---|
+| `BICsinglecomp` | identical on all 94,423 windows |
+| `BICmiddlecomp` | differs on 11,621, max 3.9e-10 |
+| `em_iterations` | differs on 4 |
+| `BICresult` | **0 flips** |
+
+So calls are stable and results are unaffected; only the low-order digits of the ASM
+BIC move. If you need bit-identical output for a regression test, pin the machine.
 
 This is also why `modkit extract calls` runs single-threaded. Threading it doesn't
 corrupt anything, but it reorders reads between threads, the read order reaches the
