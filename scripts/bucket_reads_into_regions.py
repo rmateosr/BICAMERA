@@ -1,10 +1,12 @@
 # ABOUTME: Bucket a chromosome's per-read methylation rows into per-region TSVs.
 # ABOUTME: Replaces the divide step; region boundaries come from potential_asm_regions/<chr>.bed.
+import argparse
 import bisect
 import os
 import sys
 
 # Usage: python bucket_reads_into_regions.py <chr> <output_folder>
+#                                            [--min-region-cpgs N]
 #
 # Inputs
 #   <out>/read_format/<chr>_reads.tsv           (header: readlabel haplotype chrom startcoord status)
@@ -18,22 +20,34 @@ import sys
 # Regions are standalone and non-overlapping, so run the EM driver with
 # --standalone-regions (no rightmost-W ceding).
 
-if len(sys.argv) != 3:
-    print("Usage: python bucket_reads_into_regions.py <chr> <output_folder>")
-    sys.exit(1)
+parser = argparse.ArgumentParser(
+    description="Bucket a chromosome's per-read methylation rows into per-region TSVs."
+)
+parser.add_argument("chrom", help="chromosome name, e.g. chr15")
+parser.add_argument("output_folder", help="pipeline output dir for this sample")
+# Drop regions with fewer than this many distinct in-region CpGs: too small to
+# carry a meaningful Shared-vs-ASM test. The EM evaluates a single whole-region
+# window for surviving regions below windowsize.
+#
+# Passed explicitly by asmregion_bucket_inner.sh from config/defaults.sh. It used
+# to be read from $MIN_REGION_CPGS here, which meant a lost environment silently
+# filtered regions at a different threshold than the run was launched with.
+parser.add_argument(
+    "--min-region-cpgs",
+    type=int,
+    default=3,
+    help="drop regions with fewer distinct in-region CpGs (default: 3)",
+)
+args = parser.parse_args()
 
-chrom = sys.argv[1]
-OUTPUT_FOLDER = sys.argv[2]
+chrom = args.chrom
+OUTPUT_FOLDER = args.output_folder
+MIN_REGION_CPGS = args.min_region_cpgs
 
 reads_path = os.path.join(OUTPUT_FOLDER, "read_format", f"{chrom}_reads.tsv")
 bed_path = os.path.join(OUTPUT_FOLDER, "potential_asm_regions", f"{chrom}.bed")
 out_dir = os.path.join(OUTPUT_FOLDER, "read_format_split", chrom)
 os.makedirs(out_dir, exist_ok=True)
-
-# Drop regions with fewer than this many distinct in-region CpGs: too small to
-# carry a meaningful Shared-vs-ASM test. Env-overridable (default 3); the EM
-# evaluates a single whole-region window for surviving regions below windowsize.
-MIN_REGION_CPGS = int(os.environ.get("MIN_REGION_CPGS", "3"))
 
 # ---- load regions (sorted, non-overlapping) ----
 region_starts = []

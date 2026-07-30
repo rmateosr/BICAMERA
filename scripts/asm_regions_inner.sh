@@ -11,8 +11,12 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-module use /usr/local/package/modulefiles/
-module load bedtools/2.31.1
+# Repo root: exported by run_pipeline.sh. SGE_O_WORKDIR / $(pwd) cover a stage
+# invoked by hand. site.sh resolves the tools; defaults.sh supplies the tunables.
+BICAMERA_ROOT="${BICAMERA_ROOT:-${SGE_O_WORKDIR:-$(pwd)}}"
+. "${BICAMERA_ROOT}/config/site.sh"
+. "${BICAMERA_ROOT}/config/defaults.sh"
+bicamera_require bedtools
 
 OUTPUT_FOLDER=$1
 # Array task -> chromosome: index the SAME CHROMS list used to size -t 1-N (via -V).
@@ -20,14 +24,10 @@ OUTPUT_FOLDER=$1
 chromosomes=(${CHROMS})
 chr=${chromosomes[$((SGE_TASK_ID-1))]}
 
-# Tunables (forwarded via qsub -V from run_pipeline.sh). The fallback defaults below
-# match run_pipeline.sh's: FRAC_LOW/FRAC_HIGH are the pooled-methylation envelope of
-# the Atlas hypo<=0.35 / hyper>=0.65 per-fragment cutoffs (0.5*0.65, 0.5*(1+0.35)).
-# See docs/cpg_selection_threshold_guide.md.
-MIN_COV=${MIN_COV:-10}
-FRAC_LOW=${FRAC_LOW:-0.325}
-FRAC_HIGH=${FRAC_HIGH:-0.675}
-MERGE_DIST=${MERGE_DIST:-1000}
+# MIN_COV / FRAC_LOW / FRAC_HIGH / MERGE_DIST come from config/defaults.sh, which
+# the launcher sources too — one definition, so a lost environment cannot make this
+# stage select CpGs at thresholds the run was not launched with.
+# See docs/region_preselection.md for the FRAC band rationale.
 
 PILEUP="${OUTPUT_FOLDER}/pileup/${chr}.bedmethyl"
 OUT_DIR="${OUTPUT_FOLDER}/potential_asm_regions"
@@ -61,8 +61,8 @@ fi
 awk -F'\t' -v OFS='\t' -v cov="${MIN_COV}" -v lo="${FRAC_LOW}" -v hi="${FRAC_HIGH}" '
     $10 >= cov && $11 >= lo*100 && $11 <= hi*100 { print $1, $2, $3 }
 ' "${PILEUP}" \
-  | sort -k1,1 -k2,2n \
-  | bedtools merge -d "${MERGE_DIST}" \
+  | LC_ALL=C sort -k1,1 -k2,2n \
+  | "${BEDTOOLS}" merge -d "${MERGE_DIST}" \
   | awk -F'\t' -v OFS='\t' '{ print $1, $2, $3 + 1 }' \
   > "${TMP}"
 mv "${TMP}" "${OUT}"

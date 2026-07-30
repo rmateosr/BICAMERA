@@ -11,9 +11,12 @@ set -xv
 set -o errexit
 set -o nounset
 
-module use /usr/local/package/modulefiles/
-module load samtools/1.19
-module load apptainer/
+# Repo root: exported by run_pipeline.sh. SGE_O_WORKDIR / $(pwd) cover a stage
+# invoked by hand. site.sh resolves the tools; defaults.sh supplies the tunables.
+BICAMERA_ROOT="${BICAMERA_ROOT:-${SGE_O_WORKDIR:-$(pwd)}}"
+. "${BICAMERA_ROOT}/config/site.sh"
+. "${BICAMERA_ROOT}/config/defaults.sh"
+bicamera_require modkit
 
 OUTPUT_FOLDER=$1
 REF=$2
@@ -21,10 +24,6 @@ REF=$2
 : "${CHROMS:?CHROMS not in task env — submit the array with -V}"
 chromosomes=(${CHROMS})
 chr=${chromosomes[$((SGE_TASK_ID-1))]}
-
-# Same modkit-binary resolution rationale as modkitinner_withreference_bychrandhap.sh:
-# under SGE $0 is the spool path, so resolve via $BICAMERA_ROOT / $SGE_O_WORKDIR.
-MODKIT_BIN=${MODKIT_BIN:-${BICAMERA_ROOT:-${SGE_O_WORKDIR:-$(pwd)}}/bin/modkit}
 
 mkdir -p "${OUTPUT_FOLDER}/pileup"
 OUT="${OUTPUT_FOLDER}/pileup/${chr}.bedmethyl"

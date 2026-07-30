@@ -44,44 +44,30 @@ OUT_DIR=$3
 REF="$(realpath -m "${REF}")"
 OUT_DIR="$(realpath -m "${OUT_DIR}")"
 
-export CHROMS="${CHROMS:-$(seq -f "chr%g" 1 22) chrX chrY}"
-export WINDOWSIZE="${WINDOWSIZE:-10}"
-export WINDOW_STEP="${WINDOW_STEP:-5}"
-export WORKERS="${WORKERS:-10}"
-# ASM restart override. Empty default → driver picks its built-in default (5).
-export ASM_RESTARTS="${ASM_RESTARTS:-}"
-# ASM (M1) EM convergence tol override. Empty default → driver/library default (1e-4).
-export EM_TOL="${EM_TOL:-}"
-# Potential-ASM-region front-end tunables (pileup -> select -> merge).
-# A CpG is a candidate iff valid coverage >= MIN_COV and FRAC_LOW <= population
-# methylation fraction <= FRAC_HIGH; candidates within MERGE_DIST bp merge into
-# one potential-ASM region. These feed asm_regions_inner.sh via qsub -V.
-export MIN_COV="${MIN_COV:-10}"
-# FRAC_LOW/FRAC_HIGH bound the pooled (phase-ignored) methylation fraction. The
-# defaults are the population-mean envelope of a balanced hypo/hyper site under the
-# Atlas (Nat Commun 2025) per-fragment cutoffs (hypo <=0.35, hyper >=0.65):
-#   0.5*0.65 = 0.325 (lower)   0.5*(1+0.35) = 0.675 (upper).
-# See docs/cpg_selection_threshold_guide.md for the full rationale.
-export FRAC_LOW="${FRAC_LOW:-0.325}"
-export FRAC_HIGH="${FRAC_HIGH:-0.675}"
-export MERGE_DIST="${MERGE_DIST:-1000}"
-# Drop potential-ASM regions with fewer than this many distinct in-region CpGs
-# (bucket step). Regions with >= this but < WINDOWSIZE get one whole-region EM window.
-export MIN_REGION_CPGS="${MIN_REGION_CPGS:-3}"
-RUN_LABEL="${RUN_LABEL:-bam}"
-
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-# Repo root, exported so the inner jobs can locate scripts/ and em/. The inners
-# cannot derive it themselves: under SGE, $0 / BASH_SOURCE[0] resolve to
+# Repo root, exported so the inner jobs can locate scripts/, config/ and em/. The
+# inners cannot derive it themselves: under SGE, $0 / BASH_SOURCE[0] resolve to
 # /var/spool/ge/.../job_scripts/<JID>. They previously used SGE_O_WORKDIR, which
 # only exists under SGE and so breaks the local scheduler backend.
 export BICAMERA_ROOT="${SCRIPT_DIR}"
+
+# Chromosomes to process. Defined HERE and nowhere else: this list sizes the job
+# array (-t 1-N) and each inner derives its own chromosome by indexing the SAME
+# list, so a second independently-defaulted definition could make an inner
+# process a different chromosome than the one its task index was meant for.
+# The default is UCSC chr-prefixed human; override for other assemblies or
+# naming conventions, e.g. CHROMS="1 2 3" for Ensembl-style names.
+export CHROMS="${CHROMS:-$(seq -f "chr%g" 1 22) chrX chrY}"
+
+# Tool resolution (modkit/samtools/bedtools/python) and every tunable default,
+# both shared verbatim with the inner jobs so there is exactly one definition of
+# each. See config/site.sh and config/defaults.sh.
+. "${BICAMERA_ROOT}/config/site.sh"
+. "${BICAMERA_ROOT}/config/defaults.sh"
+
 export ASM_DRIVER="${BICAMERA_ROOT}/em/BIC_algorithm_ASM.py"
 export ASM_OUT="${OUT_DIR}/ASM"
-
-# modkit binary — exported so SGE inner scripts resolve correctly
-# (under SGE, $0 / BASH_SOURCE[0] resolve to /var/spool/ge/.../job_scripts/).
-export MODKIT_BIN="${SCRIPT_DIR}/bin/modkit"
+RUN_LABEL="${RUN_LABEL:-bam}"
 
 # ------------------------------------------------------------
 # Validate inputs
@@ -92,10 +78,9 @@ for f in "${PHASED_BAM}" "${REF}"; do
         exit 1
     fi
 done
-if [ ! -x "${MODKIT_BIN}" ]; then
-    echo "ERROR: modkit binary not executable: ${MODKIT_BIN}" >&2
-    exit 1
-fi
+# Check every tool the DAG will need up front, so a missing bedtools surfaces now
+# rather than after the 24 pileup tasks have already run.
+bicamera_require modkit samtools bedtools python
 if [ ! -f "${ASM_DRIVER}" ]; then
     echo "ERROR: ASM driver not found: ${ASM_DRIVER}" >&2
     exit 1
@@ -109,11 +94,10 @@ fi
 # Set SKIP_MODBAM_CHECK=1 to bypass entirely.
 # ------------------------------------------------------------
 if [ "${SKIP_MODBAM_CHECK:-0}" != "1" ]; then
-    if command -v samtools >/dev/null 2>&1; then
         # Locally disable pipefail: head closes the pipe after 5000 reads, which
         # SIGPIPE-kills samtools. We only need to know if MM was seen.
         set +o pipefail
-        found=$(samtools view -F 260 "${PHASED_BAM}" 2>/dev/null | head -5000 | awk '
+        found=$("${SAMTOOLS}" view -F 260 "${PHASED_BAM}" 2>/dev/null | head -5000 | awk '
             { for(i=12;i<=NF;i++) if($i ~ /^M[Mm]:/) { print 1; exit } }
         ')
         set -o pipefail
@@ -127,9 +111,6 @@ ERROR: Input BAM has no MM/ML methylation tags in the first 5000 reads.
 ERR
             exit 3
         fi
-    else
-        echo "WARN: samtools not on PATH — skipping modBAM tag check. Load samtools/1.19 before submission to enable." >&2
-    fi
 fi
 
 # ------------------------------------------------------------
@@ -166,9 +147,6 @@ fi
 # ------------------------------------------------------------
 chromosomes=(${CHROMS})
 N=${#chromosomes[@]}
-# Per-slot memory for the ASM EM array (default 2G; raise via ASM_EM_VMEM=4G for
-# ONT/unfiltered inputs — see memory_rightsizing_report.md).
-ASM_EM_VMEM="${ASM_EM_VMEM:-2G}"
 bare_id() { cut -d. -f1; }   # bare job id from a -terse array submit
 
 pushd "${SCRIPT_DIR}" >/dev/null

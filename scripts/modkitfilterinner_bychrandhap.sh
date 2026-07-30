@@ -1,4 +1,6 @@
 #!/bin/bash
+# ABOUTME: Per-chr filter of the raw modkit extract down to valid m/- CpG calls.
+# ABOUTME: Pure awk on the TSV; writes atomically then deletes the raw extract.
 #$ -S /bin/bash
 #$ -cwd
 #$ -o log
@@ -8,9 +10,9 @@ set -xv
 set -o errexit
 set -o nounset
 
-module use /usr/local/package/modulefiles/
-module load samtools/1.19
-module load apptainer/
+# No config/site.sh here on purpose: this stage runs awk, mv and rm only. It
+# previously loaded samtools and apptainer and invoked neither, which under
+# `set -o errexit` made a renamed module kill a job that never needed the tool.
 OUTPUT_FOLDER=$1
 # Array task -> chromosome: index the SAME CHROMS list used to size -t 1-N (via -V).
 : "${CHROMS:?CHROMS not in task env — submit the array with -V}"

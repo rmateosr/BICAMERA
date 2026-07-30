@@ -11,8 +11,12 @@ set -xv
 set -o errexit
 set -o nounset
 
-module use /usr/local/package/modulefiles/
-module load python/3.12.0
+# Repo root: exported by run_pipeline.sh. SGE_O_WORKDIR / $(pwd) cover a stage
+# invoked by hand. site.sh resolves the tools; defaults.sh supplies the tunables.
+BICAMERA_ROOT="${BICAMERA_ROOT:-${SGE_O_WORKDIR:-$(pwd)}}"
+. "${BICAMERA_ROOT}/config/site.sh"
+. "${BICAMERA_ROOT}/config/defaults.sh"
+bicamera_require python
 
 # Pin each worker's BLAS backend to 1 thread.
 # Rationale: with WORKERS=10 and BLAS defaults (one pool per worker, each ~= physical cores),
@@ -30,9 +34,8 @@ SAMPLE_OUT=$2
 chromosomes=(${CHROMS})
 CHR=${chromosomes[$((SGE_TASK_ID-1))]}
 
-WINDOWSIZE=${WINDOWSIZE:-10}
-WORKERS=${WORKERS:-10}
-WINDOW_STEP=${WINDOW_STEP:-5}
+# WINDOWSIZE / WORKERS / WINDOW_STEP / ASM_RESTARTS / EM_TOL all come from
+# config/defaults.sh, sourced above and by the launcher — one definition each.
 
 RESTART_FLAGS=()
 if [ -n "${ASM_RESTARTS:-}" ]; then
@@ -66,7 +69,7 @@ fi
 # ASM_DRIVER is exported by the runner; falls back to the in-repo path for direct invocations.
 ASM_DRIVER="${ASM_DRIVER:-${BICAMERA_ROOT:-${SGE_O_WORKDIR:-$(pwd)}}/em/BIC_algorithm_ASM.py}"
 
-python3 "${ASM_DRIVER}" \
+"${PYTHON}" "${ASM_DRIVER}" \
     "${REGION_DIR}" \
     --windowsize "${WINDOWSIZE}" \
     --window-step "${WINDOW_STEP}" \

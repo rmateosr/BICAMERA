@@ -1,4 +1,6 @@
 #!/bin/bash
+# ABOUTME: Per-chr read-level modkit extract, restricted to the potential-ASM regions.
+# ABOUTME: One pass over the indexed BAM (--region <chr> + --include-bed) -> per-read CpG calls.
 #$ -S /bin/bash
 #$ -cwd
 #$ -o log
@@ -8,9 +10,13 @@ set -xv
 set -o errexit
 set -o nounset
 
-module use /usr/local/package/modulefiles/
-module load samtools/1.19
-module load apptainer/
+# Repo root: exported by run_pipeline.sh. SGE_O_WORKDIR / $(pwd) cover a stage
+# invoked by hand. site.sh resolves the tools; defaults.sh supplies the tunables.
+BICAMERA_ROOT="${BICAMERA_ROOT:-${SGE_O_WORKDIR:-$(pwd)}}"
+. "${BICAMERA_ROOT}/config/site.sh"
+. "${BICAMERA_ROOT}/config/defaults.sh"
+bicamera_require modkit
+
 OUTPUT_FOLDER=$1
 REF=$2
 # Array task -> chromosome: index the SAME CHROMS list used to size -t 1-N (via -V).
@@ -19,11 +25,6 @@ chromosomes=(${CHROMS})
 chr=${chromosomes[$((SGE_TASK_ID-1))]}
 # Output dir was created by the (now-removed) outer; create it here so the task is self-contained.
 mkdir -p "${OUTPUT_FOLDER}/modkit_splitbam_referenced_bychrandhap"
-# Locate modkit. Under SGE, $0 is the spooled job-script path
-# (/var/spool/ge/.../job_scripts/<JID>), so $(readlink -f "$0") does NOT point back
-# into the repo. Prefer $BICAMERA_ROOT (exported by run_pipeline.sh, works under any
-# scheduler backend), then $SGE_O_WORKDIR, then $(pwd).
-MODKIT_BIN=${MODKIT_BIN:-${BICAMERA_ROOT:-${SGE_O_WORKDIR:-$(pwd)}}/bin/modkit}
 # modkit v0.4.1 moved read-level extraction under the `calls` subcommand.
 # Top-level `modkit extract` no longer accepts flags directly — it requires a
 # subcommand (full | calls). `calls` preserves the --cpg / --mapped-only /
@@ -74,7 +75,7 @@ else
     if [ -s "${REGION_BED}" ]; then
         INCLUDE_FLAGS+=(--include-bed "${REGION_BED}")
     fi
-    ${MODKIT_BIN} extract calls --threads 1 --cpg --mapped-only --no-filtering --region "${chr}" "${INCLUDE_FLAGS[@]}" --reference ${REF} ${OUTPUT_FOLDER}/phased_output.bam "${OUT_TSV}"
+    "${MODKIT_BIN}" extract calls --threads 1 --cpg --mapped-only --no-filtering --region "${chr}" "${INCLUDE_FLAGS[@]}" --reference "${REF}" "${OUTPUT_FOLDER}/phased_output.bam" "${OUT_TSV}"
 fi
 
 

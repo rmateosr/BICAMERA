@@ -10,8 +10,12 @@ set -xv
 set -o errexit
 set -o nounset
 
-module use /usr/local/package/modulefiles/
-module load samtools/1.19
+# Repo root: exported by run_pipeline.sh. SGE_O_WORKDIR / $(pwd) cover a stage
+# invoked by hand. site.sh resolves the tools; defaults.sh supplies the tunables.
+BICAMERA_ROOT="${BICAMERA_ROOT:-${SGE_O_WORKDIR:-$(pwd)}}"
+. "${BICAMERA_ROOT}/config/site.sh"
+. "${BICAMERA_ROOT}/config/defaults.sh"
+bicamera_require samtools
 
 OUTPUT_FOLDER=$1
 # Array task -> chromosome: index the SAME CHROMS list used to size -t 1-N (via -V).
@@ -31,7 +35,7 @@ mkdir -p ${OUTPUT_FOLDER}/hpmap
 # primary records the (now-deleted) splitbam stage produced, so the read_id->HP map is
 # unchanged. The .bai symlink alongside phased_output.bam is made by run_pipeline.sh.
 OUT=${OUTPUT_FOLDER}/hpmap/${chr}.tsv
-samtools view -F 0x900 ${OUTPUT_FOLDER}/phased_output.bam ${chr} | awk -F'\t' '
+"${SAMTOOLS}" view -F 0x900 "${OUTPUT_FOLDER}/phased_output.bam" "${chr}" | awk -F'\t' '
 {
     hp="noH";
     for(i=12;i<=NF;i++){ if($i ~ /^HP:i:/){ v=substr($i,6); if(v=="1")hp="H1"; else if(v=="2")hp="H2"; } }
