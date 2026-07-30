@@ -140,6 +140,10 @@ pip install pytest
 pytest
 ```
 
+## Citation
+
+[Paper reference to be added upon publication]
+
 ## Licence
 
-MIT — see `LICENSE`.
+MIT — see [LICENSE](LICENSE).
