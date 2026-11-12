@@ -143,6 +143,12 @@ On a cluster whose tools come from environment modules, copy
 `config/site.shirokane.sh` to `config/site.<yoursite>.sh`, edit the module names,
 and run with `BICAMERA_SITE=<yoursite>`.
 
+## Benchmarks
+
+[benchmarks/](benchmarks/README.md) holds the scripts that generated the paper's
+simulated datasets and scored them with BICAMERA, a Fisher exact test and ASMS.
+They need `scipy` in addition to the requirements above.
+
 ## Tests
 
 ```bash
@@ -153,7 +159,3 @@ pytest
 ## Citation
 
 [Paper reference to be added upon publication]
-
-## Licence
-
-MIT — see [LICENSE](LICENSE).

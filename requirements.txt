@@ -2,4 +2,7 @@
 numpy>=1.24
 pandas>=2.0
 
+# benchmarks/ only: the Fisher exact-test comparator.
+scipy>=1.10
+
 # For the test suite: pip install pytest
